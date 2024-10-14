@@ -1,15 +1,20 @@
 import sqlite3
 
-# Initialize SQLite database and add a classification field
+# Initialize SQLite database and add necessary fields
 def init_db():
     conn = sqlite3.connect('dementia_tips.db')
     cursor = conn.cursor()
 
-    # Create a table to store user preferences, last query, and dementia classification
+    # Create a table to store user information
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY,
         username TEXT,
+        age INTEGER,
+        location TEXT,
+        medical_details TEXT,
+        eating_habits TEXT,
+        lifestyle_details TEXT,
         preferences TEXT,
         last_query TEXT,
         classification TEXT
@@ -18,8 +23,9 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Store or update user preferences, query, and classification
-def update_user(username, preferences=None, last_query=None, classification=None):
+# Function to update or insert user information in the database
+def update_user(username, age=None, location=None, medical_details=None, eating_habits=None,
+                lifestyle_details=None, preferences=None, last_query=None, classification=None):
     conn = sqlite3.connect('dementia_tips.db')
     cursor = conn.cursor()
 
@@ -27,19 +33,21 @@ def update_user(username, preferences=None, last_query=None, classification=None
     user = cursor.fetchone()
 
     if user:
-        if preferences:
-            cursor.execute('UPDATE users SET preferences = ? WHERE username = ?', (preferences, username))
-        if last_query:
-            cursor.execute('UPDATE users SET last_query = ? WHERE username = ?', (last_query, username))
-        if classification:
-            cursor.execute('UPDATE users SET classification = ? WHERE username = ?', (classification, username))
+        cursor.execute('''
+            UPDATE users SET age = ?, location = ?, medical_details = ?, eating_habits = ?, 
+            lifestyle_details = ?, preferences = ?, last_query = ?, classification = ? 
+            WHERE username = ?
+        ''', (age, location, medical_details, eating_habits, lifestyle_details, preferences, last_query, classification, username))
     else:
-        cursor.execute('INSERT INTO users (username, preferences, last_query, classification) VALUES (?, ?, ?, ?)', (username, preferences, last_query, classification))
+        cursor.execute('''
+            INSERT INTO users (username, age, location, medical_details, eating_habits, lifestyle_details, preferences, last_query, classification)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (username, age, location, medical_details, eating_habits, lifestyle_details, preferences, last_query, classification))
 
     conn.commit()
     conn.close()
 
-# Retrieve user information, including classification
+# Function to retrieve user information
 def get_user(username):
     conn = sqlite3.connect('dementia_tips.db')
     cursor = conn.cursor()
