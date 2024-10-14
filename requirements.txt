@@ -1,0 +1,7 @@
+streamlit
+openai
+faiss-cpu
+sentence-transformers
+python-dotenv==1.0.1
+numpy==1.25.0
+sqlite3
