@@ -1,12 +1,8 @@
 import streamlit as st
 import os
 import tempfile
-
 from openai import OpenAI
 import model
-
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
 from faiss_index import build_faiss_index, search_faiss_index
 from database import init_db, update_user, get_user
 from dotenv import load_dotenv
@@ -19,16 +15,45 @@ class_mapping = {
     1: "Moderate dementia"
 }
 
-# Load environment variables from .env file
+# Load environment variables
 load_dotenv()
-
-# Set your OpenAI API key
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Initialize the SQLite database
 init_db()
 
 # Build FAISS indices for each classification (in-memory)
 indices, embeddings_dict = build_faiss_index()
+
+# Function to handle the query, document retrieval, and GPT response generation
+def handle_query(age, location, medical_details, eating_habits, lifestyle_details, classification, query):
+    # Search FAISS for relevant documents based on query and classification
+    relevant_docs = search_faiss_index(query, indices, classification)
+    
+    # Combine relevant documents into context for GPT-3
+    context = (f"The user is {age} years old, located in {location}, with the following medical details: {medical_details}. "
+               f"Their eating habits include: {eating_habits}, and their lifestyle details are: {lifestyle_details}. "
+               f"Their dementia classification is: {classification}.\n\n"
+               f"Here are some tips for dementia care based on their classification:\n"
+               + " ".join(relevant_docs))
+    
+    # Generate GPT response with OpenAI's ChatCompletion
+    response = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "system", "content": "You are an expert in dementia care."},
+            {"role": "user", "content": f"{context}\n\nAnswer this question based on the above information: {query}"}
+        ],
+        max_tokens=150
+    )
+    
+    # Display the AI-generated response
+    st.write(response.choices[0].message.content)
+    
+    # Print relevant documents to the console (for debugging)
+    print("Relevant documents returned by FAISS:")
+    for doc in relevant_docs:
+        print(doc)
 
 # Streamlit App Layout
 st.title("Dementia Care Advice GPT")
@@ -40,135 +65,63 @@ if username:
     # Dementia Classification Options
     classification_options = ["No dementia", "Very mild dementia", "Mild dementia", "Moderate dementia"]
 
-       # Preselect classification if it exists in the database
-    if user and user[9]:  # Check if user exists and classification is not None
-        selected_classification = user[9]
+    if user:
+        # Prepopulate fields for existing users
+        selected_classification = user[9] if user[9] else "No dementia"
+        classification_index = classification_options.index(selected_classification)
 
-        # Display the dropdown for dementia classification with preselection
-        classification = st.selectbox("Select Dementia Classification", classification_options, index=classification_options.index(selected_classification))
-
-        # Fields for user details
         age = st.number_input("Enter your age:", min_value=1, max_value=120, step=1, value=user[2] if user and user[2] else 67)
         location = st.text_input("Enter your location:", value=user[3] if user and user[3] else "")
         medical_details = st.text_area("Enter medical details (other diseases):", value=user[4] if user and user[4] else "")
         eating_habits = st.text_area("Describe your eating habits:", value=user[5] if user and user[5] else "")
         lifestyle_details = st.text_area("Describe your lifestyle details (e.g., physical activity):", value=user[6] if user and user[6] else "")
 
+        classification = st.selectbox("Select Dementia Classification", classification_options, index=classification_index)
 
-        st.subheader("Query for dementia care advice:")
+        # Query and GPT response
         query = st.text_input("Ask a question:")
-
         if query:
-
-            # Search FAISS for relevant documents based on query and classification
-            relevant_docs = search_faiss_index(query, indices, classification)
-
-            # Print the relevant documents to the console
-            print("Relevant documents returned by FAISS:")
-            for doc in relevant_docs:
-                print(doc)
-
-        # Combine relevant documents into context for GPT-3
-            context = f"The user is {age} years old, located in {location}, with the following medical details: {medical_details}. " \
-                    f"Their eating habits include: {eating_habits}, and their lifestyle details are: {lifestyle_details}. " \
-                    f"Their dementia classification is: {classification}.\n\n" \
-                    f"Here are some tips for dementia care based on their classification:\n" \
-                    + " ".join(relevant_docs)
-
-            # Generate GPT response with OpenAI's ChatCompletion
-            response = client.chat.completions.create(model="gpt-4-turbo",
-            messages=[
-                {"role": "system", "content": "You are an expert in dementia care."},
-                {"role": "user", "content": f"{context}\n\nAnswer this question based on the above information: {query}"}
-            ],
-            max_tokens=150)
-
-            # Display the AI-generated response
-            st.write(response.choices[0].message.content)
-
-            # Update user last query and classification in the database
+            handle_query(age, location, medical_details, eating_habits, lifestyle_details, classification, query)
             update_user(username, age, location, medical_details, eating_habits, lifestyle_details, last_query=query, classification=classification)
 
-        if user:
-            st.subheader("Your Last Query:")
-            st.write(f"Your last query was: {user[8]}")
+        st.subheader("Your Last Query:")
+        st.write(f"Your last query was: {user[8]}")
 
-        st.subheader("Personalize your experience:")
+        # Personalize the experience
         preferences = st.text_area("Any preferences or specific dementia care challenges?", value=user[7] if user and user[7] else "")
-
         if preferences:
             update_user(username, preferences=preferences)
-    
     else:
-
-        # Upload image
+        # New User or Upload Image for Classification
         uploaded_image = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
-
-        # Only proceed if an image has been uploaded
         if uploaded_image:
-            # Save the uploaded image to a temporary file
+            # Save and pass image to the prediction model
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
-                temp_file.write(uploaded_image.read())  # Write the uploaded image content to the temp file
-                temp_file_path = temp_file.name  # Get the path of the temporary file
+                temp_file.write(uploaded_image.read())
+                temp_file_path = temp_file.name
 
-            # Use the model's predict method to get the classification index
-            predicted_class_index = model.predict(temp_file_path)  # Pass the image path to predict()
-
-            # Map the prediction index to the corresponding classification
+            # Predict dementia classification from the image
+            predicted_class_index = model.predict(temp_file_path)
             selected_classification = class_mapping.get(predicted_class_index, "No dementia")
+            classification_index = classification_options.index(selected_classification)
 
-             # Display the dropdown for dementia classification with preselection
-            classification = st.selectbox("Select Dementia Classification", classification_options, index=classification_options.index(selected_classification))
+            classification = st.selectbox("Select Dementia Classification", classification_options, index=classification_index)
 
-            # Fields for user details
-            age = st.number_input("Enter your age:", min_value=1, max_value=120, step=1, value=user[2] if user and user[2] else 67)
-            location = st.text_input("Enter your location:", value=user[3] if user and user[3] else "")
-            medical_details = st.text_area("Enter medical details (other diseases):", value=user[4] if user and user[4] else "")
-            eating_habits = st.text_area("Describe your eating habits:", value=user[5] if user and user[5] else "")
-            lifestyle_details = st.text_area("Describe your lifestyle details (e.g., physical activity):", value=user[6] if user and user[6] else "")
+            # Input for new users
+            age = st.number_input("Enter your age:", min_value=1, max_value=120, step=1)
+            location = st.text_input("Enter your location:")
+            medical_details = st.text_area("Enter medical details (other diseases):")
+            eating_habits = st.text_area("Describe your eating habits:")
+            lifestyle_details = st.text_area("Describe your lifestyle details (e.g., physical activity):")
 
-
-            st.subheader("Query for dementia care advice:")
+            # Query and GPT response for new users
             query = st.text_input("Ask a question:")
-
             if query:
-
-                # Search FAISS for relevant documents based on query and classification
-                relevant_docs = search_faiss_index(query, indices, classification)
-
-                # Print the relevant documents to the console
-                print("Relevant documents returned by FAISS:")
-                for doc in relevant_docs:
-                    print(doc)
-
-            # Combine relevant documents into context for GPT-3
-                context = f"The user is {age} years old, located in {location}, with the following medical details: {medical_details}. " \
-                        f"Their eating habits include: {eating_habits}, and their lifestyle details are: {lifestyle_details}. " \
-                        f"Their dementia classification is: {classification}.\n\n" \
-                        f"Here are some tips for dementia care based on their classification:\n" \
-                        + " ".join(relevant_docs)
-
-                # Generate GPT response with OpenAI's ChatCompletion
-                response = client.chat.completions.create(model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "You are an expert in dementia care."},
-                    {"role": "user", "content": f"{context}\n\nAnswer this question based on the above information: {query}"}
-                ],
-                max_tokens=150)
-
-                # Display the AI-generated response
-                st.write(response.choices[0].message.content)
-
-                # Update user last query and classification in the database
+                handle_query(age, location, medical_details, eating_habits, lifestyle_details, classification, query)
                 update_user(username, age, location, medical_details, eating_habits, lifestyle_details, last_query=query, classification=classification)
 
-            if user:
-                st.subheader("Your Last Query:")
-                st.write(f"Your last query was: {user[8]}")
-
             st.subheader("Personalize your experience:")
-            preferences = st.text_area("Any preferences or specific dementia care challenges?", value=user[7] if user and user[7] else "")
-
+            preferences = st.text_area("Any preferences or specific dementia care challenges?")
             if preferences:
                 update_user(username, preferences=preferences)
 
