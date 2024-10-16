@@ -51,7 +51,37 @@ def handle_query(age, location, medical_details, eating_habits, lifestyle_detail
         print(doc)
 
 # Streamlit App Layout
-st.title("Detect Dementia  and Receive Care")
+st.title("Detect Dementia and Receive Care")
+
+# Custom CSS for styling tabs
+st.markdown("""
+    <style>
+    /* Style for the main tabs container */
+    div[data-testid="stTabs"] div[role="tablist"] > button {
+        border: 2px solid #f0f0f0;
+        border-radius: 8px;
+        background-color: #ADD8E6; /* Light blue */
+        color: black;
+        font-size: 16px;
+        margin: 0 8px;
+        padding: 10px;
+        transition: background-color 0.3s ease;
+    }
+    
+    /* Style for active tab */
+    div[data-testid="stTabs"] div[role="tablist"] > button[aria-selected="true"] {
+        background-color: #4682B4; /* Steel blue */
+        color: white;
+        border: 2px solid #4682B4;
+    }
+    
+    /* Hover effect for tabs */
+    div[data-testid="stTabs"] div[role="tablist"] > button:hover {
+        background-color: #87CEEB; /* Sky blue */
+        border: 2px solid #87CEEB;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # Authentication state handling
 if "authenticated" not in st.session_state:
@@ -97,7 +127,7 @@ else:
             st.rerun()  # Refresh the app to go back to login/signup
 
     # Split the UI into 3 tabs
-    tabs = st.tabs(["Profile Setup", "Detect Dementia with MRI Scans", "Get Care/Tips"])
+    tabs = st.tabs(["Setup Profile", "Detect Dementia", "Get Care"])
 
     # Tab 1: Profile Setup/Modification
     with tabs[0]:
@@ -148,7 +178,7 @@ else:
     
     # Tab 3: Query Submission and Response
     with tabs[2]:
-        st.header("Query Submission and Dementia Care Advice")
+        st.header("Dementia Care Advice")
 
         if user:
             age = user[2]
