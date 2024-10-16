@@ -28,10 +28,11 @@ init_db()
 indices, embeddings_dict = build_faiss_index()
 
 # Function to handle the query, document retrieval, and GPT response generation
-def handle_query(age, location, medical_details, eating_habits, lifestyle_details, classification, query):
+def handle_query(age, location, medical_details, eating_habits, lifestyle_details, preferences, classification, query):
     relevant_docs = search_faiss_index(query, indices, classification)
     context = (f"The user is {age} years old, located in {location}, with the following medical details: {medical_details}. "
                f"Their eating habits include: {eating_habits}, and their lifestyle details are: {lifestyle_details}. "
+               f"Their preferences or dementia care challenges include: {preferences}.\n"
                f"Their dementia classification is: {classification}.\n\n"
                f"Here are some tips for dementia care based on their classification:\n"
                + " ".join(relevant_docs))
@@ -62,7 +63,7 @@ st.markdown("""
         border-radius: 8px;
         background-color: #ADD8E6; /* Light blue */
         color: black;
-        font-size: 16px;
+        font-size: 20px;  /* Increase the font size here */
         margin: 0 8px;
         padding: 10px;
         transition: background-color 0.3s ease;
@@ -73,12 +74,14 @@ st.markdown("""
         background-color: #4682B4; /* Steel blue */
         color: white;
         border: 2px solid #4682B4;
+        font-size: 22px;  /* Increase the font size for the active tab */
     }
     
     /* Hover effect for tabs */
     div[data-testid="stTabs"] div[role="tablist"] > button:hover {
         background-color: #87CEEB; /* Sky blue */
         border: 2px solid #87CEEB;
+        font-size: 20px;  /* Keep the hover text size consistent */
     }
     </style>
 """, unsafe_allow_html=True)
@@ -186,11 +189,12 @@ else:
             medical_details = user[4]
             eating_habits = user[5]
             lifestyle_details = user[6]
+            preferences = user[7]
             classification = st.session_state.get('dementia_classification', user[9] if user[9] else "No dementia")
             
             query = st.text_input("Ask a question:")
             if query:
-                handle_query(age, location, medical_details, eating_habits, lifestyle_details, classification, query)
+                handle_query(age, location, medical_details, eating_habits, lifestyle_details, preferences, classification, query)
                 update_user(st.session_state.username, last_query=query)
                 
             st.subheader("Your Last Query:")
