@@ -1,10 +1,11 @@
 import streamlit as st
 import os
 import tempfile
+import bcrypt
 from openai import OpenAI
 import model
 from faiss_index import build_faiss_index, search_faiss_index
-from database import init_db, update_user, get_user
+from database import init_db, save_user, authenticate_user, get_user, update_user
 from dotenv import load_dotenv
 from PIL import Image
 
@@ -28,17 +29,13 @@ indices, embeddings_dict = build_faiss_index()
 
 # Function to handle the query, document retrieval, and GPT response generation
 def handle_query(age, location, medical_details, eating_habits, lifestyle_details, classification, query):
-    # Search FAISS for relevant documents based on query and classification
     relevant_docs = search_faiss_index(query, indices, classification)
-    
-    # Combine relevant documents into context for GPT-3
     context = (f"The user is {age} years old, located in {location}, with the following medical details: {medical_details}. "
                f"Their eating habits include: {eating_habits}, and their lifestyle details are: {lifestyle_details}. "
                f"Their dementia classification is: {classification}.\n\n"
                f"Here are some tips for dementia care based on their classification:\n"
                + " ".join(relevant_docs))
     
-    # Generate GPT response with OpenAI's ChatCompletion
     response = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
@@ -48,30 +45,66 @@ def handle_query(age, location, medical_details, eating_habits, lifestyle_detail
         max_tokens=150
     )
     
-    # Display the AI-generated response
     st.write(response.choices[0].message.content)
-    
-    # Print relevant documents to the console (for debugging)
     print("Relevant documents returned by FAISS:")
     for doc in relevant_docs:
         print(doc)
 
-# Streamlit App Layout with Tabs
-st.title("Detect Dementia and receive care")
+# Streamlit App Layout
+st.title("Detect Dementia  and Receive Care")
 
-# Split the UI into 3 tabs
-tabs = st.tabs(["Profile Setup", "Detect Dementia with MRI Scans", "Get Care/tips"])
+# Authentication state handling
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
 
-# Tab 1: Profile Setup/Modification
-with tabs[0]:
-    st.header("Profile Setup/Modification")
-    
-    username = st.text_input("Enter your name:")
-    
-    if username:
-        user = get_user(username)
+if not st.session_state.authenticated:
+    # Authentication (Login or Sign Up)
+    auth_choice = st.radio("Choose an action", ["Login", "Sign Up"])
+
+    if auth_choice == "Login":
+        st.subheader("Login")
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
         
-        # Prepopulate fields for existing users
+        if st.button("Login"):
+            if authenticate_user(username, password):
+                st.session_state.authenticated = True
+                st.session_state.username = username
+                st.success("Logged in successfully!")
+                st.rerun()  # Refresh the UI to show the tabs after successful login
+            else:
+                st.error("Invalid username or password")
+
+    elif auth_choice == "Sign Up":
+        st.subheader("Sign Up")
+        username = st.text_input("Username (for sign up)")
+        password = st.text_input("Password", type="password")
+        
+        if st.button("Sign Up"):
+            save_user(username, password)
+            st.success("User registered successfully! Please log in.")
+else:
+    # Display welcome message and logout button
+    col1, col2 = st.columns([3, 1])  # Creating two columns, one for the welcome message and one for the logout button
+    
+    with col1:
+        st.write(f"Welcome, {st.session_state.username}!")
+    
+    with col2:
+        if st.button("Logout"):
+            st.session_state.authenticated = False
+            st.session_state.username = None
+            st.rerun()  # Refresh the app to go back to login/signup
+
+    # Split the UI into 3 tabs
+    tabs = st.tabs(["Profile Setup", "Detect Dementia with MRI Scans", "Get Care/Tips"])
+
+    # Tab 1: Profile Setup/Modification
+    with tabs[0]:
+        st.header("Profile Setup/Modification")
+        
+        user = get_user(st.session_state.username)
+        
         if user:
             age = st.number_input("Enter your age:", min_value=1, max_value=120, step=1, value=user[2] if user[2] else 67)
             location = st.text_input("Enter your location:", value=user[3] if user[3] else "")
@@ -80,69 +113,44 @@ with tabs[0]:
             lifestyle_details = st.text_area("Describe your lifestyle details (e.g., physical activity):", value=user[6] if user[6] else "")
             preferences = st.text_area("Any preferences or specific dementia care challenges?", value=user[7] if user[7] else "")
             
-            # Update user details on change
             if st.button("Update Profile"):
-                update_user(username, age, location, medical_details, eating_habits, lifestyle_details, preferences=preferences)
+                update_user(st.session_state.username, age=age, location=location, medical_details=medical_details, eating_habits=eating_habits, lifestyle_details=lifestyle_details, preferences=preferences)
                 st.success("Profile updated successfully!")
-        else:
-            # New user
-            age = st.number_input("Enter your age:", min_value=1, max_value=120, step=1, value=67)
-            location = st.text_input("Enter your location:")
-            medical_details = st.text_area("Enter medical details (other diseases):")
-            eating_habits = st.text_area("Describe your eating habits:")
-            lifestyle_details = st.text_area("Describe your lifestyle details (e.g., physical activity):")
-            preferences = st.text_area("Any preferences or specific dementia care challenges?")
-            
-            if st.button("Save Profile"):
-                update_user(username, age, location, medical_details, eating_habits, lifestyle_details, preferences=preferences)
-                st.success("Profile created successfully!")
-
-# Tab 2: Expert MRI Upload
-with tabs[1]:
-    st.header("Upload MRI Scan for Dementia Classification")
     
-    if username:
-        user = get_user(username)
-        # Load the initial dementia classification from the database
-        if user and user[9]:
-            st.session_state['dementia_classification'] = user[9]
-            st.write(f"Current Dementia Classification: {user[9]}")
-        else:
-            st.write("No dementia classification available. Please upload an MRI image.")
+    # Tab 2: Expert MRI Upload
+    with tabs[1]:
+        st.header("Upload MRI Scan for Dementia Classification")
         
-        uploaded_image = st.file_uploader("Upload an MRI image", type=["jpg", "jpeg", "png"])
-        
-        if uploaded_image:
-            # Save the uploaded image to a temporary file
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
-                temp_file.write(uploaded_image.read())
-                temp_file_path = temp_file.name
-
-            # Display the uploaded image
-            st.image(Image.open(uploaded_image), caption="Uploaded MRI Image", use_column_width=True)
+        if user:
+            if user[9]:
+                st.session_state['dementia_classification'] = user[9]
+                st.write(f"Current Dementia Classification: {user[9]}")
+            else:
+                st.write("No dementia classification available. Please upload an MRI image.")
             
-            # Predict dementia classification from the image
-            predicted_class_index = model.predict(temp_file_path)
-            new_classification = class_mapping.get(predicted_class_index, "No dementia")
+            uploaded_image = st.file_uploader("Upload an MRI image", type=["jpg", "jpeg", "png"])
             
-            # Update the new classification in Streamlit's session state and in the database
-            st.session_state['dementia_classification'] = new_classification
-            st.write(f"New Dementia Classification: {new_classification}")
-            
-            # Store the new classification in the database
-            update_user(username, classification=new_classification)
-            st.success("New dementia classification updated in the profile.")
-        
+            if uploaded_image:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
+                    temp_file.write(uploaded_image.read())
+                    temp_file_path = temp_file.name
 
-# Tab 3: Query Submission and Response
-with tabs[2]:
-    st.header("Query Submission and Dementia Care Advice")
-
-    if username:
-        user = get_user(username)
+                st.image(Image.open(uploaded_image), caption="Uploaded MRI Image", use_column_width=True)
+                
+                predicted_class_index = model.predict(temp_file_path)
+                new_classification = class_mapping.get(predicted_class_index, "No dementia")
+                
+                st.session_state['dementia_classification'] = new_classification
+                st.write(f"New Dementia Classification: {new_classification}")
+                
+                update_user(st.session_state.username, classification=new_classification)
+                st.success("New dementia classification updated in the profile.")
+    
+    # Tab 3: Query Submission and Response
+    with tabs[2]:
+        st.header("Query Submission and Dementia Care Advice")
 
         if user:
-            # Fetch details from the user's profile (set in Tab 1 and Tab 2)
             age = user[2]
             location = user[3]
             medical_details = user[4]
@@ -150,13 +158,10 @@ with tabs[2]:
             lifestyle_details = user[6]
             classification = st.session_state.get('dementia_classification', user[9] if user[9] else "No dementia")
             
-            # Query and GPT response
             query = st.text_input("Ask a question:")
             if query:
                 handle_query(age, location, medical_details, eating_habits, lifestyle_details, classification, query)
-                update_user(username, age, location, medical_details, eating_habits, lifestyle_details, last_query=query)
-
+                update_user(st.session_state.username, last_query=query)
+                
             st.subheader("Your Last Query:")
             st.write(f"Your last query was: {user[8]}")
-        else:
-            st.write("User not found. Please set up your profile in Tab 1.")

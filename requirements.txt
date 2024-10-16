@@ -7,4 +7,5 @@ numpy==1.25.0
 tensorflow
 numpy
 pillow
-tf-kerasß
+tf-keras
+bcrypt
