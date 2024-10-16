@@ -2,6 +2,10 @@
 
 MindSage is a web application designed to assist in detecting dementia and offering personalized care advice. The app uses MRI image classification with a machine learning model, FAISS for document retrieval, and OpenAI GPT-3.5 to provide tailored advice based on user profiles and their preferences.
 
+![Mindsage6](https://github.com/user-attachments/assets/d3178c49-ee64-4c72-8522-085696ad3040)
+![Mindsage5](https://github.com/user-attachments/assets/64d9c5bc-db71-47b5-9e24-f018e8a67be8)
+![Mindsage4](https://github.com/user-attachments/assets/53f9f935-2a5a-42a4-9fda-c0f3209a1f48)
+
 ## Features
 
 1. **User Authentication**: Users can sign up, log in, and log out. Authentication is handled securely with hashed passwords.
